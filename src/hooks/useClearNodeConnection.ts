@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { ethers } from "ethers";
 import {
   createAuthRequestMessage,
   createAuthVerifyMessageWithJWT,
@@ -30,6 +29,7 @@ export function useClearNodeConnection(
     useState<string>("disconnected");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keypair, setKeypair] = useState<CryptoKeypair | null>(null);
 
   const expire = String(Math.floor(Date.now() / 1000) + 24 * 60 * 60);
 
@@ -46,11 +46,11 @@ export function useClearNodeConnection(
       throw new Error("No wallet client available for EIP-712 signing");
     }
 
-    return async (data: any): Promise<`0x${string}`> => {
+    return async (data: unknown): Promise<`0x${string}` | undefined> => {
       console.log("Signing auth_verify challenge with EIP-712:", data);
 
       let challengeUUID = "";
-      const address =  walletClient.account?.address
+      const address = walletClient.account?.address;
       // The data coming in is the array from createAuthVerifyMessage
       // Format: [timestamp, "auth_verify", [{"address": "0x...", "challenge": "uuid"}], timestamp]
       if (Array.isArray(data)) {
@@ -192,30 +192,20 @@ export function useClearNodeConnection(
   }
 
   // Message signer function
-  // TODO: use this function for localKey signing
   const messageSigner: MessageSigner = useCallback(
     async (payload) => {
-      if (!eoaWallet) throw new Error("State wallet not available");
+      if (!keypair) throw new Error("State wallet not available");
 
-      // try {
-      //   const message = JSON.stringify(payload);
-      //   const digestHex = ethers.id(message);
-      //   const messageBytes = ethers.getBytes(digestHex);
-      //   const { serialized: signature } =
-      //     eoaWallet.sess;
-      //   return signature;
-      // } catch (error) {
-      //   console.error("Error signing message:", error);
-      //   throw error;
-      // }
+      const signer = createEthersSigner(keypair.privateKey);
+      return signer.sign(payload);
     },
-    [eoaWallet]
+    [keypair]
   );
 
   // Create a signed request
   const createSignedRequest = useCallback(
     async (method: string, params: unknown[] = []): Promise<string> => {
-      if (!eoaWallet) throw new Error("State wallet not available");
+      if (!keypair) throw new Error("State wallet not available");
 
       const requestId = generateRequestId();
       const timestamp = getCurrentTimestamp();
@@ -223,15 +213,13 @@ export function useClearNodeConnection(
       const request: any = { req: requestData };
 
       // Sign the request
-      const message = JSON.stringify(request);
-      const digestHex = ethers.id(message);
-      const messageBytes = ethers.getBytes(digestHex);
-      const { serialized: signature } = eoaWallet.signingKey.sign(messageBytes);
+      const signer = createEthersSigner(keypair.privateKey);
+      const signature = await signer.sign(request);
       request.sig = [signature];
 
       return JSON.stringify(request);
     },
-    [eoaWallet]
+    [keypair]
   );
 
   // Send a message to the ClearNode
@@ -261,6 +249,11 @@ export function useClearNodeConnection(
       ws.close();
     }
 
+    if (!keypair) {
+      console.error("Cannot connect without keypair");
+      return;
+    }
+
     setConnectionStatus("connecting");
     setError(null);
 
@@ -276,19 +269,6 @@ export function useClearNodeConnection(
         const jwtToken = localStorage.getItem("jwtToken");
 
         let authRequest: string;
-        
-        console.log("Creating auth request message");
-        let keypair;
-        const savedKeys = localStorage.getItem("crypto_keypair");
-        
-        if (savedKeys) {
-          console.log("Found existing crypto keys, reusing them");
-          keypair = JSON.parse(savedKeys);
-        } else {
-          console.log("No existing keys found, generating new ones");
-          keypair = await generateKeyPair();
-          localStorage.setItem("crypto_keypair", JSON.stringify(keypair));
-        }
         
         console.log("Using crypto keys:", keypair);
         const signer = createEthersSigner(keypair.privateKey);
@@ -338,11 +318,10 @@ export function useClearNodeConnection(
                 
                 console.log("Creating auth verify message with data:", event.data);
                 const authVerify = await createAuthVerifyMessage(
-                  eip712SigningFunction,
+                  eip712SigningFunction as MessageSigner,
                   event.data
                 );
                 console.log("Generated auth verify message:", authVerify);
-                console.log('newWs', newWs)
                 newWs.send(authVerify);
               } else if (
                 response.res &&
@@ -364,7 +343,7 @@ export function useClearNodeConnection(
                 console.error("Received error response:", response);
                 reject(new Error(JSON.stringify(response.res[2])));
               }
-            } catch (err: any) {
+            } catch (err) {
               console.error("Error handling auth response:", err);
               reject(err);
             }
@@ -372,56 +351,14 @@ export function useClearNodeConnection(
 
           newWs.addEventListener("message", handleAuthResponse);
         });
-      } catch (err: any) {
+      } catch (err) {
         console.error("Full auth request error:", err);
-        setError(`Authentication request failed: ${err.message}`);
+        setError(`Authentication request failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
 
-    // newWs.onmessage = async (event) => {
-    //   try {
-    //     const message = JSON.parse(event.data);
-    //     console.log("Received message:", message);
-
-    //     // Handle authentication flow
-    //     if (message.res && message.res[1] === "auth_challenge") {
-    //       try {
-    //         console.log("Received auth challenge, creating verify message");
-    //         const savedKeys = localStorage.getItem("crypto_keypair");
-    //         if (!savedKeys) {
-    //           throw new Error("No saved keys found");
-    //         }
-    //         const keypair = JSON.parse(savedKeys) as CryptoKeypair;
-    //         const signer = createEthersSigner(keypair.privateKey);
-    //         const eip712SigningFunction = createEIP712SigningFunction(signer);
-    //         console.log("Calling createAuthVerifyMessage");
-    //         const authVerify = await createAuthVerifyMessage(
-    //           eip712SigningFunction,
-    //           event.data
-    //         );
-    //         console.log("Auth verify created:", authVerify);
-    //         newWs.send(authVerify);
-    //       } catch (err: any) {
-    //         console.error("Full auth verify error:", err);
-    //         setError(`Authentication verification failed: ${err.message}`);
-    //       }
-    //     } else if (message.res && message.res[1] === "auth_success") {
-    //       console.log("Authentication successful");
-    //       setIsAuthenticated(true);
-    //     } else if (message.res && message.res[1] === "auth_failure") {
-    //       console.error("Authentication failed:", message.res[2]);
-    //       setIsAuthenticated(false);
-    //       setError(`Authentication failed: ${message.res[2]}`);
-    //     }
-
-    //     // Additional message handling can be added here
-    //   } catch (err: any) {
-    //     console.error("Error handling message:", err);
-    //   }
-    // };
-
-    newWs.onerror = (error: any) => {
-      setError(`WebSocket error: ${error.message}`);
+    newWs.onerror = (error: Event) => {
+      setError(`WebSocket error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setConnectionStatus("error");
     };
 
@@ -431,7 +368,48 @@ export function useClearNodeConnection(
     };
 
     setWs(newWs);
-  }, [clearNodeUrl, messageSigner, eoaWallet]);
+  }, [clearNodeUrl, eoaWallet, keypair, expire]);
+
+  // Initialize keypair on mount
+  useEffect(() => {
+    const initializeKeypair = async () => {
+      try {
+        const savedKeys = localStorage.getItem("crypto_keypair");
+        if (savedKeys) {
+          console.log("Found existing crypto keys, reusing them");
+          setKeypair(JSON.parse(savedKeys));
+        } else {
+          console.log("No existing keys found, generating new ones");
+          const newKeypair = await generateKeyPair();
+          setKeypair(newKeypair);
+          localStorage.setItem("crypto_keypair", JSON.stringify(newKeypair));
+        }
+      } catch (error) {
+        console.error("Error initializing keypair:", error);
+        setError("Failed to initialize keypair");
+      }
+    };
+
+    initializeKeypair();
+  }, []);
+
+  // Connect when the component mounts and we have a keypair
+  useEffect(() => {
+    let isActive = true;
+
+    if (clearNodeUrl && eoaWallet && keypair && isActive) {
+      connect();
+    }
+
+    // Clean up on unmount
+    return () => {
+      isActive = false;
+      if (ws) {
+        ws.close();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearNodeUrl, eoaWallet, keypair, connect]);
 
   // Disconnect from the ClearNode
   const disconnect = useCallback(() => {
@@ -441,29 +419,15 @@ export function useClearNodeConnection(
     }
   }, [ws]);
 
-  // Connect when the component mounts
-  useEffect(() => {
-    if (clearNodeUrl && eoaWallet) {
-      connect();
-    }
-
-    // Clean up on unmount
-    return () => {
-      if (ws) {
-        ws.close();
-      }
-    };
-  }, [clearNodeUrl, eoaWallet, connect]);
-
   // Create helper methods for common operations
   const getChannels = useCallback(async () => {
     // Using the built-in helper function from NitroliteRPC
     const message = await createGetChannelsMessage(
       messageSigner,
-      eoaWallet?.address || "0x"
+      keypair?.address as `0x${string}`,
     );
     return sendMessage(message);
-  }, [messageSigner, sendMessage, eoaWallet]);
+  }, [messageSigner, sendMessage, keypair]);
 
   const getLedgerBalances = useCallback(
     async (channelId: any) => {
@@ -481,10 +445,9 @@ export function useClearNodeConnection(
     // Using the built-in helper function from NitroliteRPC
     const message = await createGetConfigMessage(
       messageSigner,
-      eoaWallet?.address || "0x"
     );
     return sendMessage(message);
-  }, [messageSigner, sendMessage, eoaWallet]);
+  }, [messageSigner, sendMessage]);
 
   return {
     connectionStatus,

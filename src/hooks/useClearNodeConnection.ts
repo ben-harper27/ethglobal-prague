@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 import {
   createAuthRequestMessage,
+  createAuthVerifyMessageWithJWT,
   createAuthVerifyMessage,
   createGetChannelsMessage,
   createGetLedgerBalancesMessage,
@@ -271,6 +272,11 @@ export function useClearNodeConnection(
 
       // Start authentication process
       try {
+        // Check for JWT token first
+        const jwtToken = localStorage.getItem("jwtToken");
+
+        let authRequest: string;
+        
         console.log("Creating auth request message");
         let keypair;
         const savedKeys = localStorage.getItem("crypto_keypair");
@@ -286,24 +292,29 @@ export function useClearNodeConnection(
         
         console.log("Using crypto keys:", keypair);
         const signer = createEthersSigner(keypair.privateKey);
-        const eoaAddress = eoaWallet?.account?.address
+        const eoaAddress = eoaWallet?.account?.address;
         console.log("Using EOA address:", eoaAddress);
         console.log("Using participant address:", signer.address);
-        
-        // Create the auth request with the EOA wallet address
-        const authRequestPayload = {
-          wallet: eoaAddress as `0x${string}`,
-          participant: signer.address as `0x${string}`,
-          app_name: "Auction App",
-          scope: "app.auction.app",
-          expire: expire,
-          application: eoaAddress as `0x${string}`,
-          allowances: [],
-        };
-        console.log("Auth request payload:", authRequestPayload);
-        
-        const authRequest = await createAuthRequestMessage(authRequestPayload);
-        console.log("Final auth request message:", authRequest);
+
+        if (jwtToken) {
+          console.log("JWT token found, sending auth verification request with JWT token");
+          authRequest = await createAuthVerifyMessageWithJWT(jwtToken);
+        } else {
+          // Create the auth request with the EOA wallet address
+          const authRequestPayload = {
+            wallet: eoaAddress as `0x${string}`,
+            participant: signer.address as `0x${string}`,
+            app_name: "Auction App",
+            scope: "app.auction.app",
+            expire: expire,
+            application: eoaAddress as `0x${string}`,
+            allowances: [],
+          };
+          console.log("Auth request payload:", authRequestPayload);
+          
+          authRequest = await createAuthRequestMessage(authRequestPayload);
+          console.log("Final auth request message:", authRequest);
+        }
         newWs.send(authRequest);
         
         return new Promise<void>((resolve, reject) => {
@@ -339,6 +350,14 @@ export function useClearNodeConnection(
                   response.res[1] === "auth_success")
               ) {
                 console.log("Authentication successful with response:", response);
+
+                // If response contains a JWT token, save it to local storage
+                if (response.res[2]?.[0]?.["jwt_token"]) {
+                  console.log("JWT token recieved:", response.res[2][0]["jwt_token"]);
+                  localStorage.setItem("jwtToken", response.res[2][0]["jwt_token"]);
+                }
+
+                // Authentication successful
                 setIsAuthenticated(true);
                 resolve();
               } else if (response.res && response.res[1] === "error") {

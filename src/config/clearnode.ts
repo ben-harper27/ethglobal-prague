@@ -8,9 +8,6 @@ export const CLEARNODE_CONFIG = {
 };
 
 export const AUTH_TYPES = {
-    EIP712Domain: [
-        { name: 'name', type: 'string' }
-    ],
     Policy: [
         { name: 'challenge', type: 'string' },
         { name: 'scope', type: 'string' },

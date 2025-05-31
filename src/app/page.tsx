@@ -6,6 +6,7 @@ import { CLEARNODE_CONFIG } from '@/config/clearnode';
 import { ethers } from 'ethers';
 import { createWalletClient, custom, WalletClient } from 'viem';
 import { polygon } from 'viem/chains';
+import Auction from '@/components/Auction';
 
 export default function Home() {
   const [wallet, setWallet] = useState<WalletClient | null>(null);
@@ -53,23 +54,35 @@ export default function Home() {
   } = useClearNodeConnection(CLEARNODE_CONFIG.WS_URL, wallet);
 
   return (
-    <main className="min-h-screen p-8">
+    <main className="min-h-screen p-8 bg-gray-900">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8">Off-Chain Auction System</h1>
+        <h1 className="text-4xl font-bold mb-8 text-white">Off-Chain Auction System</h1>
         
         {/* Connection Status */}
-        <div className="mb-8">
-          <p className="mb-2">Status: {connectionStatus}</p>
-          {error && <p className="text-red-500 mb-2">{error}</p>}
+        <div className="mb-8 p-4 bg-gray-800 rounded-lg border border-gray-700">
+          <p className="mb-2 text-gray-200">Status: {connectionStatus}</p>
+          {error && <p className="text-red-400 mb-2">{error}</p>}
           {!isAuthenticated && (
             <button
               onClick={connect}
-              className="bg-blue-500 text-white px-4 py-2 rounded"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors duration-200"
             >
               Connect to ClearNode
             </button>
           )}
         </div>
+
+        {/* Wallet Status */}
+        <div className="mb-8 p-4 bg-gray-800 rounded-lg border border-gray-700">
+          <p className="mb-2 text-gray-200">
+            Wallet: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not Connected'}
+          </p>
+        </div>
+
+        {/* Auction Component */}
+        {address && isAuthenticated && (
+          <Auction userAddress={address} />
+        )}
       </div>
     </main>
   );

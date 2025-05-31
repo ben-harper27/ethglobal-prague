@@ -17,11 +17,12 @@ import {
 } from "@/context/createSigner";
 import { generateKeyPair } from "@/context/createSigner";
 import { AUTH_TYPES } from "@/config/clearnode";
+import { WalletClient } from "viem";
 
 // Custom hook for ClearNode connection
 export function useClearNodeConnection(
   clearNodeUrl: string,
-  eoaWallet: ethers.JsonRpcSigner
+  eoaWallet: WalletClient | null = null
 ) {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [connectionStatus, setConnectionStatus] =
@@ -48,8 +49,7 @@ export function useClearNodeConnection(
       console.log("Signing auth_verify challenge with EIP-712:", data);
 
       let challengeUUID = "";
-      const address = await walletClient.getAddress();
-
+      const address =  walletClient.account?.address
       // The data coming in is the array from createAuthVerifyMessage
       // Format: [timestamp, "auth_verify", [{"address": "0x...", "challenge": "uuid"}], timestamp]
       if (Array.isArray(data)) {
@@ -140,7 +140,7 @@ export function useClearNodeConnection(
       // Create EIP-712 message
       const message = {
         challenge: challengeUUID,
-        scope: "app.nitro.aura",
+        scope: "app.auction.app",
         wallet: address as `0x${string}`,
         application: address as `0x${string}`,
         participant: stateSigner.address as `0x${string}`,
@@ -152,11 +152,13 @@ export function useClearNodeConnection(
 
       try {
         // Sign with EIP-712
-        const signature = await walletClient.signTypedData(
-          getAuthDomain(),
-          AUTH_TYPES,
-          message
-        );
+        const signature = await walletClient.signTypedData({
+          account: walletClient.account!,
+          domain: getAuthDomain(),
+          types: AUTH_TYPES,
+          primaryType: "Policy",
+          message: message,
+        });
 
         console.log("EIP-712 signature generated for challenge:", signature);
         return signature as `0x${string}`;
@@ -164,46 +166,47 @@ export function useClearNodeConnection(
         console.error("EIP-712 signing failed:", eip712Error);
         console.log("Attempting fallback to regular message signing...");
 
-        try {
-          // Fallback to regular message signing if EIP-712 fails
-          const fallbackMessage = `Authentication challenge for ${address}: ${challengeUUID}`;
+        // try {
+        //   // Fallback to regular message signing if EIP-712 fails
+        //   const fallbackMessage = `Authentication challenge for ${address}: ${challengeUUID}`;
 
-          console.log("Fallback message:", fallbackMessage);
+        //   console.log("Fallback message:", fallbackMessage);
 
-          const fallbackSignature = await walletClient.signMessage(
-            fallbackMessage
-          );
+        //   const fallbackSignature = await walletClient.signMessage(
+        //     fallbackMessage
+        //   );
 
-          console.log("Fallback signature generated:", fallbackSignature);
-          return fallbackSignature as `0x${string}`;
-        } catch (fallbackError) {
-          console.error("Fallback signing also failed:", fallbackError);
-          throw new Error(
-            `Both EIP-712 and fallback signing failed: ${
-              (eip712Error as Error)?.message
-            }`
-          );
-        }
+        //   console.log("Fallback signature generated:", fallbackSignature);
+        //   return fallbackSignature as `0x${string}`;
+        // } catch (fallbackError) {
+        //   console.error("Fallback signing also failed:", fallbackError);
+        //   throw new Error(
+        //     `Both EIP-712 and fallback signing failed: ${
+        //       (eip712Error as Error)?.message
+        //     }`
+        //   );
+        // }
       }
     };
   }
 
   // Message signer function
+  // TODO: use this function for localKey signing
   const messageSigner: MessageSigner = useCallback(
     async (payload) => {
       if (!eoaWallet) throw new Error("State wallet not available");
 
-      try {
-        const message = JSON.stringify(payload);
-        const digestHex = ethers.id(message);
-        const messageBytes = ethers.getBytes(digestHex);
-        const { serialized: signature } =
-          eoaWallet.signingKey.sign(messageBytes);
-        return signature;
-      } catch (error) {
-        console.error("Error signing message:", error);
-        throw error;
-      }
+      // try {
+      //   const message = JSON.stringify(payload);
+      //   const digestHex = ethers.id(message);
+      //   const messageBytes = ethers.getBytes(digestHex);
+      //   const { serialized: signature } =
+      //     eoaWallet.sess;
+      //   return signature;
+      // } catch (error) {
+      //   console.error("Error signing message:", error);
+      //   throw error;
+      // }
     },
     [eoaWallet]
   );
@@ -269,48 +272,78 @@ export function useClearNodeConnection(
       // Start authentication process
       try {
         console.log("Creating auth request message");
-        const newKeyPair = await generateKeyPair();
-        localStorage.setItem("crypto_keypair", JSON.stringify(newKeyPair));
-        console.log("Generated and stored new crypto keys");
-        const signer = createEthersSigner(newKeyPair.privateKey);
-        const eoaAddress = await eoaWallet.getAddress();
-        const authRequest = await createAuthRequestMessage({
+        let keypair;
+        const savedKeys = localStorage.getItem("crypto_keypair");
+        
+        if (savedKeys) {
+          console.log("Found existing crypto keys, reusing them");
+          keypair = JSON.parse(savedKeys);
+        } else {
+          console.log("No existing keys found, generating new ones");
+          keypair = await generateKeyPair();
+          localStorage.setItem("crypto_keypair", JSON.stringify(keypair));
+        }
+        
+        console.log("Using crypto keys:", keypair);
+        const signer = createEthersSigner(keypair.privateKey);
+        const eoaAddress = eoaWallet?.account?.address
+        console.log("Using EOA address:", eoaAddress);
+        console.log("Using participant address:", signer.address);
+        
+        // Create the auth request with the EOA wallet address
+        const authRequestPayload = {
           wallet: eoaAddress as `0x${string}`,
           participant: signer.address as `0x${string}`,
           app_name: "Auction App",
+          scope: "app.auction.app",
           expire: expire,
           application: eoaAddress as `0x${string}`,
           allowances: [],
-        });
-        console.log("Auth request created:", authRequest);
+        };
+        console.log("Auth request payload:", authRequestPayload);
+        
+        const authRequest = await createAuthRequestMessage(authRequestPayload);
+        console.log("Final auth request message:", authRequest);
         newWs.send(authRequest);
+        
         return new Promise<void>((resolve, reject) => {
           const handleAuthResponse = async (event: MessageEvent) => {
             let response;
+            console.log("Received raw response:", event.data);
 
             try {
               response = JSON.parse(event.data);
+              console.log("Parsed response:", response);
             } catch (error) {
+              console.error("Failed to parse response:", error);
               return;
             }
 
             try {
               if (response.res && response.res[1] === "auth_challenge") {
-                const eip712SigningFunction =
-                  createEIP712SigningFunction(signer);
-                console.log("Calling createAuthVerifyMessage");
+                console.log("Got auth challenge, creating signing function with signer:", signer.address);
+                const eip712SigningFunction = createEIP712SigningFunction(signer);
+                console.log("Auth challenge response:", response);
+                
+                console.log("Creating auth verify message with data:", event.data);
                 const authVerify = await createAuthVerifyMessage(
                   eip712SigningFunction,
                   event.data
                 );
+                console.log("Generated auth verify message:", authVerify);
+                console.log('newWs', newWs)
                 newWs.send(authVerify);
               } else if (
                 response.res &&
                 (response.res[1] === "auth_verify" ||
                   response.res[1] === "auth_success")
               ) {
-                console.log("Authentication successful");
+                console.log("Authentication successful with response:", response);
+                setIsAuthenticated(true);
                 resolve();
+              } else if (response.res && response.res[1] === "error") {
+                console.error("Received error response:", response);
+                reject(new Error(JSON.stringify(response.res[2])));
               }
             } catch (err: any) {
               console.error("Error handling auth response:", err);
@@ -326,47 +359,47 @@ export function useClearNodeConnection(
       }
     };
 
-    newWs.onmessage = async (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log("Received message:", message);
+    // newWs.onmessage = async (event) => {
+    //   try {
+    //     const message = JSON.parse(event.data);
+    //     console.log("Received message:", message);
 
-        // Handle authentication flow
-        if (message.res && message.res[1] === "auth_challenge") {
-          try {
-            console.log("Received auth challenge, creating verify message");
-            const savedKeys = localStorage.getItem("crypto_keypair");
-            if (!savedKeys) {
-              throw new Error("No saved keys found");
-            }
-            const keypair = JSON.parse(savedKeys) as CryptoKeypair;
-            const signer = createEthersSigner(keypair.privateKey);
-            const eip712SigningFunction = createEIP712SigningFunction(signer);
-            console.log("Calling createAuthVerifyMessage");
-            const authVerify = await createAuthVerifyMessage(
-              eip712SigningFunction,
-              event.data
-            );
-            console.log("Auth verify created:", authVerify);
-            newWs.send(authVerify);
-          } catch (err: any) {
-            console.error("Full auth verify error:", err);
-            setError(`Authentication verification failed: ${err.message}`);
-          }
-        } else if (message.res && message.res[1] === "auth_success") {
-          console.log("Authentication successful");
-          setIsAuthenticated(true);
-        } else if (message.res && message.res[1] === "auth_failure") {
-          console.error("Authentication failed:", message.res[2]);
-          setIsAuthenticated(false);
-          setError(`Authentication failed: ${message.res[2]}`);
-        }
+    //     // Handle authentication flow
+    //     if (message.res && message.res[1] === "auth_challenge") {
+    //       try {
+    //         console.log("Received auth challenge, creating verify message");
+    //         const savedKeys = localStorage.getItem("crypto_keypair");
+    //         if (!savedKeys) {
+    //           throw new Error("No saved keys found");
+    //         }
+    //         const keypair = JSON.parse(savedKeys) as CryptoKeypair;
+    //         const signer = createEthersSigner(keypair.privateKey);
+    //         const eip712SigningFunction = createEIP712SigningFunction(signer);
+    //         console.log("Calling createAuthVerifyMessage");
+    //         const authVerify = await createAuthVerifyMessage(
+    //           eip712SigningFunction,
+    //           event.data
+    //         );
+    //         console.log("Auth verify created:", authVerify);
+    //         newWs.send(authVerify);
+    //       } catch (err: any) {
+    //         console.error("Full auth verify error:", err);
+    //         setError(`Authentication verification failed: ${err.message}`);
+    //       }
+    //     } else if (message.res && message.res[1] === "auth_success") {
+    //       console.log("Authentication successful");
+    //       setIsAuthenticated(true);
+    //     } else if (message.res && message.res[1] === "auth_failure") {
+    //       console.error("Authentication failed:", message.res[2]);
+    //       setIsAuthenticated(false);
+    //       setError(`Authentication failed: ${message.res[2]}`);
+    //     }
 
-        // Additional message handling can be added here
-      } catch (err: any) {
-        console.error("Error handling message:", err);
-      }
-    };
+    //     // Additional message handling can be added here
+    //   } catch (err: any) {
+    //     console.error("Error handling message:", err);
+    //   }
+    // };
 
     newWs.onerror = (error: any) => {
       setError(`WebSocket error: ${error.message}`);

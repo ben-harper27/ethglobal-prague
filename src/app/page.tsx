@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react';
 import { useClearNodeConnection } from '@/hooks/useClearNodeConnection';
 import { CLEARNODE_CONFIG } from '@/config/clearnode';
 import { ethers } from 'ethers';
+import { createWalletClient, custom, WalletClient } from 'viem';
+import { polygon } from 'viem/chains';
 
 export default function Home() {
-  const [wallet, setWallet] = useState<ethers.Signer | null>(null);
+  const [wallet, setWallet] = useState<WalletClient | null>(null);
   const [address, setAddress] = useState<string>('');
 
   // Initialize wallet from MetaMask
@@ -23,8 +25,16 @@ export default function Home() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
+
+      const walletClient = createWalletClient({
+        transport: custom(window.ethereum),
+        chain: polygon,
+        account: address as `0x${string}`,
+      });
+
+      console.log('Account:', walletClient);
       
-      setWallet(signer);
+      setWallet(walletClient);
       setAddress(address);
     } catch (error) {
       console.error('Failed to initialize wallet:', error);

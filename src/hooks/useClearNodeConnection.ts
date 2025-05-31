@@ -269,7 +269,7 @@ export function useClearNodeConnection(
         const jwtToken = localStorage.getItem("jwtToken");
 
         let authRequest: string;
-        
+
         console.log("Using crypto keys:", keypair);
         const signer = createEthersSigner(keypair.privateKey);
         const eoaAddress = eoaWallet?.account?.address;
@@ -277,7 +277,9 @@ export function useClearNodeConnection(
         console.log("Using participant address:", signer.address);
 
         if (jwtToken) {
-          console.log("JWT token found, sending auth verification request with JWT token");
+          console.log(
+            "JWT token found, sending auth verification request with JWT token"
+          );
           authRequest = await createAuthVerifyMessageWithJWT(jwtToken);
         } else {
           // Create the auth request with the EOA wallet address
@@ -291,12 +293,12 @@ export function useClearNodeConnection(
             allowances: [],
           };
           console.log("Auth request payload:", authRequestPayload);
-          
+
           authRequest = await createAuthRequestMessage(authRequestPayload);
           console.log("Final auth request message:", authRequest);
         }
         newWs.send(authRequest);
-        
+
         return new Promise<void>((resolve, reject) => {
           const handleAuthResponse = async (event: MessageEvent) => {
             let response;
@@ -312,11 +314,18 @@ export function useClearNodeConnection(
 
             try {
               if (response.res && response.res[1] === "auth_challenge") {
-                console.log("Got auth challenge, creating signing function with signer:", signer.address);
-                const eip712SigningFunction = createEIP712SigningFunction(signer);
+                console.log(
+                  "Got auth challenge, creating signing function with signer:",
+                  signer.address
+                );
+                const eip712SigningFunction =
+                  createEIP712SigningFunction(signer);
                 console.log("Auth challenge response:", response);
-                
-                console.log("Creating auth verify message with data:", event.data);
+
+                console.log(
+                  "Creating auth verify message with data:",
+                  event.data
+                );
                 const authVerify = await createAuthVerifyMessage(
                   eip712SigningFunction as MessageSigner,
                   event.data
@@ -328,12 +337,21 @@ export function useClearNodeConnection(
                 (response.res[1] === "auth_verify" ||
                   response.res[1] === "auth_success")
               ) {
-                console.log("Authentication successful with response:", response);
+                console.log(
+                  "Authentication successful with response:",
+                  response
+                );
 
                 // If response contains a JWT token, save it to local storage
                 if (response.res[2]?.[0]?.["jwt_token"]) {
-                  console.log("JWT token recieved:", response.res[2][0]["jwt_token"]);
-                  localStorage.setItem("jwtToken", response.res[2][0]["jwt_token"]);
+                  console.log(
+                    "JWT token recieved:",
+                    response.res[2][0]["jwt_token"]
+                  );
+                  localStorage.setItem(
+                    "jwtToken",
+                    response.res[2][0]["jwt_token"]
+                  );
                 }
 
                 // Authentication successful
@@ -353,12 +371,20 @@ export function useClearNodeConnection(
         });
       } catch (err) {
         console.error("Full auth request error:", err);
-        setError(`Authentication request failed: ${err instanceof Error ? err.message : String(err)}`);
+        setError(
+          `Authentication request failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
       }
     };
 
     newWs.onerror = (error: Event) => {
-      setError(`WebSocket error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setError(
+        `WebSocket error: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
       setConnectionStatus("error");
     };
 
@@ -408,7 +434,7 @@ export function useClearNodeConnection(
         ws.close();
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clearNodeUrl, eoaWallet, keypair, connect]);
 
   // Disconnect from the ClearNode
@@ -424,7 +450,7 @@ export function useClearNodeConnection(
     // Using the built-in helper function from NitroliteRPC
     const message = await createGetChannelsMessage(
       messageSigner,
-      keypair?.address as `0x${string}`,
+      keypair?.address as `0x${string}`
     );
     return sendMessage(message);
   }, [messageSigner, sendMessage, keypair]);
@@ -443,9 +469,7 @@ export function useClearNodeConnection(
 
   const getConfig = useCallback(async () => {
     // Using the built-in helper function from NitroliteRPC
-    const message = await createGetConfigMessage(
-      messageSigner,
-    );
+    const message = await createGetConfigMessage(messageSigner);
     return sendMessage(message);
   }, [messageSigner, sendMessage]);
 

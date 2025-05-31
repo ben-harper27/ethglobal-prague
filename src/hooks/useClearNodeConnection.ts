@@ -10,7 +10,7 @@ import {
   getCurrentTimestamp
 } from '@erc7824/nitrolite';
 import { MessageSigner } from '@erc7824/nitrolite';
-import { createEthersSigner, WalletSigner } from '@/context/createSigner';
+import { createEthersSigner, CryptoKeypair, WalletSigner } from '@/context/createSigner';
 import { generateKeyPair } from '@/context/createSigner';
 import { AUTH_TYPES } from '@/config/clearnode';
 
@@ -41,7 +41,7 @@ export function useClearNodeConnection(clearNodeUrl: string, eoaWallet: ethers.J
           console.log("Signing auth_verify challenge with EIP-712:", data);
 
           let challengeUUID = "";
-          const address = walletClient.getAddress();
+          const address = await walletClient.getAddress();
 
           // The data coming in is the array from createAuthVerifyMessage
           // Format: [timestamp, "auth_verify", [{"address": "0x...", "challenge": "uuid"}], timestamp]
@@ -116,16 +116,14 @@ export function useClearNodeConnection(clearNodeUrl: string, eoaWallet: ethers.J
 
           try {
               // Sign with EIP-712
-              const signature = await walletClient.signTypedData({
-                  account: walletClient.account!,
-                  domain: getAuthDomain(),
-                  types: AUTH_TYPES,
-                  primaryType: "Policy",
-                  message: message,
-              });
+              const signature = await walletClient.signTypedData(
+                  getAuthDomain(),
+                  AUTH_TYPES,
+                  message
+              );
 
               console.log("EIP-712 signature generated for challenge:", signature);
-              return signature;
+              return signature as `0x${string}`;
           } catch (eip712Error) {
               console.error("EIP-712 signing failed:", eip712Error);
               console.log("Attempting fallback to regular message signing...");
@@ -136,10 +134,9 @@ export function useClearNodeConnection(clearNodeUrl: string, eoaWallet: ethers.J
 
                   console.log("Fallback message:", fallbackMessage);
 
-                  const fallbackSignature = await walletClient.signMessage({
-                      message: fallbackMessage,
-                      account: walletClient.account!,
-                  });
+                  const fallbackSignature = await walletClient.signMessage(
+                      fallbackMessage,
+                  );
 
                   console.log("Fallback signature generated:", fallbackSignature);
                   return fallbackSignature as `0x${string}`;
@@ -281,10 +278,17 @@ export function useClearNodeConnection(clearNodeUrl: string, eoaWallet: ethers.J
         if (message.res && message.res[1] === 'auth_challenge') {
           try {
             console.log('Received auth challenge, creating verify message');
+            const savedKeys = localStorage.getItem("crypto_keypair");
+            if (!savedKeys) {
+              throw new Error("No saved keys found");
+            }
+            const keypair = JSON.parse(savedKeys) as CryptoKeypair;
+            const signer = createEthersSigner(keypair.privateKey);
+            const eip712SigningFunction = createEIP712SigningFunction(signer);
+            console.log("Calling createAuthVerifyMessage");
             const authVerify = await createAuthVerifyMessage(
-              messageSigner,
-              message,
-              eoaWallet?.address || "0x"
+              eip712SigningFunction,
+              event.data
             );
             console.log('Auth verify created:', authVerify);
             newWs.send(authVerify);

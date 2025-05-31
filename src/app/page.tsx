@@ -1,18 +1,46 @@
 'use client';
 
-import { useClearNodeConnection } from '../hooks/useClearNodeConnection';
+import { useState, useEffect } from 'react';
+import { useClearNodeConnection } from '@/hooks/useClearNodeConnection';
 import { CLEARNODE_CONFIG } from '@/config/clearnode';
+import { ethers } from 'ethers';
 
 export default function Home() {
-  // TODO: Initialize your state wallet here
-  const stateWallet = null; // Replace with actual wallet initialization
+  const [wallet, setWallet] = useState<ethers.Signer | null>(null);
+  const [address, setAddress] = useState<string>('');
+
+  // Initialize wallet from MetaMask
+  const initializeWallet = async () => {
+    try {
+      if (typeof window.ethereum === 'undefined') {
+        throw new Error('Please install MetaMask');
+      }
+
+      // Request account access
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      
+      // Create Web3Provider and get signer
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      
+      setWallet(signer);
+      setAddress(address);
+    } catch (error) {
+      console.error('Failed to initialize wallet:', error);
+    }
+  };
+
+  useEffect(() => {
+    initializeWallet();
+  }, []);
 
   const {
     connectionStatus,
     isAuthenticated,
     error,
     connect
-  } = useClearNodeConnection(CLEARNODE_CONFIG.WS_URL, stateWallet);
+  } = useClearNodeConnection(CLEARNODE_CONFIG.WS_URL, wallet);
 
   return (
     <main className="min-h-screen p-8">

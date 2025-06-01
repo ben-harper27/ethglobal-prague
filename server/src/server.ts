@@ -29,13 +29,12 @@ interface CreateAuctionPayload {
 
 interface PlaceBidPayload {
   auctionId: string;
-  bidder: string;
-  bidAmount: string;
+  request: string;
 }
 
 interface SettleAuctionPayload {
   auctionId: string;
-  seller: string;
+  request: string;
 }
 
 interface HandlerContext {
@@ -105,13 +104,27 @@ async function handlePlaceBid(
     return sendError(ws, 'INVALID_PAYLOAD', 'Invalid payload format');
   }
 
-  const { auctionId, bidder, bidAmount } = payload;
+  const { auctionId, request } = payload;
 
-  if (!auctionId || !bidder || !bidAmount) {
-    return sendError(ws, 'INVALID_PAYLOAD', 'Auction ID, bidder address, and bid amount are required');
+  if (!auctionId || !request) {
+    return sendError(ws, 'INVALID_PAYLOAD', 'Auction ID and signed request are required');
   }
 
   try {
+    // Parse and verify the signed request
+    const signedRequest = JSON.parse(request);
+    const [requestId, method, params] = signedRequest.req;
+
+    if (method !== 'place_bid' || !Array.isArray(params) || params.length !== 3) {
+      return sendError(ws, 'INVALID_REQUEST', 'Invalid bid request format');
+    }
+
+    const [bidAuctionId, bidder, bidAmount] = params;
+
+    if (bidAuctionId !== auctionId) {
+      return sendError(ws, 'INVALID_REQUEST', 'Auction ID mismatch');
+    }
+
     // Check if auction exists
     if (!hasAuctionSession(auctionId)) {
       return sendError(ws, 'AUCTION_NOT_FOUND', 'Auction not found');
@@ -171,32 +184,45 @@ async function handleSettleAuction(
     return sendError(ws, 'INVALID_PAYLOAD', 'Invalid payload format');
   }
 
-  const { auctionId, seller } = payload;
+  const { auctionId, request } = payload;
 
-  if (!auctionId || !seller) {
-    return sendError(ws, 'INVALID_PAYLOAD', 'Auction ID and seller address are required');
+  if (!auctionId || !request) {
+    return sendError(ws, 'INVALID_PAYLOAD', 'Auction ID and signed request are required');
   }
 
   try {
-    // Check if auction exists
+    // Parse and verify the signed request
+    const signedRequest = JSON.parse(request);
+    const [requestId, method, params] = signedRequest.req;
+
+    if (method !== 'settle_auction' || !Array.isArray(params) || params.length !== 2) {
+      return sendError(ws, 'INVALID_REQUEST', 'Invalid settle request format');
+    }
+
+    const [settleAuctionId, seller] = params;
+
+    if (settleAuctionId !== auctionId) {
+      return sendError(ws, 'INVALID_REQUEST', 'Auction ID mismatch');
+    }
+
+    // Get auction state
     const auction = getAuctionSession(auctionId);
     if (!auction) {
       return sendError(ws, 'AUCTION_NOT_FOUND', 'Auction not found');
     }
 
-    // Verify sender is the seller
-    if (auction.seller !== seller) {
-      return sendError(ws, 'NOT_AUTHORIZED', 'Only the seller can settle the auction');
+    // Verify seller
+    if (seller !== auction.seller) {
+      return sendError(ws, 'UNAUTHORIZED', 'Only the seller can settle the auction');
     }
 
     // Settle the auction
     const success = await settleAuctionSession(auctionId);
-    
     if (!success) {
-      return sendError(ws, 'SETTLEMENT_FAILED', 'Failed to settle auction');
+      return sendError(ws, 'SETTLE_FAILED', 'Failed to settle auction');
     }
 
-    // Broadcast auction settled to all connected clients
+    // Broadcast settlement to all connected clients
     wss.clients.forEach((client) => {
       if (client.readyState === 1) {
         client.send(JSON.stringify({
@@ -210,25 +236,43 @@ async function handleSettleAuction(
 
   } catch (error) {
     logger.error(`Error settling auction ${auctionId}:`, error);
-    return sendError(ws, 'SETTLEMENT_ERROR', error instanceof Error ? error.message : 'Failed to settle auction');
+    return sendError(ws, 'SETTLE_ERROR', error instanceof Error ? error.message : 'Failed to settle auction');
   }
 }
 
 /**
  * Handles getting auction state
  */
-async function handleGetAuctionState(ws: WebSocket, payload: { auctionId: string }, { sendError }: HandlerContext) {
+async function handleGetAuctionState(
+  ws: WebSocket, 
+  payload: { auctionId: string; request: string }, 
+  { sendError }: HandlerContext
+) {
   if (!payload || typeof payload !== 'object') {
     return sendError(ws, 'INVALID_PAYLOAD', 'Invalid payload format');
   }
 
-  const { auctionId } = payload;
+  const { auctionId, request } = payload;
 
-  if (!auctionId) {
-    return sendError(ws, 'INVALID_PAYLOAD', 'Auction ID is required');
+  if (!auctionId || !request) {
+    return sendError(ws, 'INVALID_PAYLOAD', 'Auction ID and signed request are required');
   }
 
   try {
+    // Parse and verify the signed request
+    const signedRequest = JSON.parse(request);
+    const [requestId, method, params] = signedRequest.req;
+
+    if (method !== 'get_auction_state' || !Array.isArray(params) || params.length !== 1) {
+      return sendError(ws, 'INVALID_REQUEST', 'Invalid get state request format');
+    }
+
+    const [stateAuctionId] = params;
+
+    if (stateAuctionId !== auctionId) {
+      return sendError(ws, 'INVALID_REQUEST', 'Auction ID mismatch');
+    }
+
     // Get auction state
     const auction = getAuctionSession(auctionId);
     if (!auction) {
@@ -239,15 +283,15 @@ async function handleGetAuctionState(ws: WebSocket, payload: { auctionId: string
     ws.send(JSON.stringify({
       type: 'auction:state',
       auctionId,
-      title: "Limited Edition Digital Art Collection", 
-      description: "A curated collection of unique digital artworks from renowned artists. Each piece is authenticated on the blockchain and comes with exclusive viewing rights.",
+      title: "Limited Edition Digital Art Collection",
+      description: "A curated collection of unique digital artworks",
       startingPrice: auction.currentBid,
       currentBid: auction.currentBid,
       currentBidder: auction.currentBidder,
+      endTime: new Date(auction.createdAt + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from creation
       seller: auction.seller,
-      endTime: new Date(auction.createdAt + 24 * 60 * 60 * 1000), // 24 hours from creation
       status: 'active',
-      bids: [] // In real app, get from auction history
+      bids: [] // TODO: Implement bid history
     }));
 
   } catch (error) {
@@ -314,7 +358,7 @@ wss.on('connection', (ws: WebSocket) => {
           await handleSettleAuction(ws, data.payload as SettleAuctionPayload, context);
           break;
         case 'auction:getState':
-          await handleGetAuctionState(ws, data.payload as { auctionId: string }, context);
+          await handleGetAuctionState(ws, data.payload as { auctionId: string; request: string }, context);
           break;
         default:
           logger.ws(`Invalid message type: ${data.type}`);

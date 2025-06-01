@@ -51,8 +51,6 @@ export default function Home() {
     isAuthenticated,
     error,
     connect,
-    sendMessage,
-    createSignedRequest
   } = useClearNodeConnection(CLEARNODE_CONFIG.WS_URL, wallet);
 
   return (

@@ -105,7 +105,7 @@ export default function Auction({
           break;
 
         case 'auction:bid':
-          if (lastMessage.payload) {
+          if (lastMessage.payload?.bidder && lastMessage.payload?.bidAmount) {
             const bid = {
               bidder: lastMessage.payload.bidder,
               amount: BigInt(lastMessage.payload.bidAmount)

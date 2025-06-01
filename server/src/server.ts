@@ -10,7 +10,8 @@ import {
   updateAuctionBid,
   settleAuctionSession,
   getAuctionSession,
-  hasAuctionSession
+  hasAuctionSession,
+  createDefaultAuction
 } from './services/appSessions.js';
 import { WebSocket } from 'ws';
 
@@ -347,6 +348,11 @@ async function initializeNitroliteServices() {
     logger.nitro('Initializing Nitrolite services...');
     await initializeRPCClient();
     logger.nitro('Nitrolite RPC client initialized successfully');
+
+    // Create default auction
+    const defaultAuctionId = await createDefaultAuction();
+    logger.system(`Created default auction with ID: ${defaultAuctionId}`);
+    
   } catch (error) {
     logger.error('Failed to initialize Nitrolite services:', error);
     logger.system('Continuing in mock mode without Nitrolite channel');

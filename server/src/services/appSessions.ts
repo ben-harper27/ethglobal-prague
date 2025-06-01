@@ -241,4 +241,35 @@ export function hasAuctionSession(auctionId: string): boolean {
  */
 export function getAllAuctionSessions() {
   return auctionSessions;
-} 
+}
+
+/**
+ * Creates a default auction for testing purposes
+ * @returns {Promise<string>} The default auction ID
+ */
+export async function createDefaultAuction(): Promise<string> {
+  try {
+    // Generate a deterministic auction ID for the default auction
+    const defaultAuctionId = 'default-auction-0x1';
+    
+    // Use the server's address as the seller
+    const rpcClient = await getRPCClient();
+    if (!rpcClient) {
+      throw new Error('RPC client not initialized');
+    }
+    
+    const serverAddress = await rpcClient.getWalletClient().account.address;
+    
+    // Create auction with default values
+    const startingPrice = '1000000'; // 1 USDC
+    
+    await createAuctionSession(defaultAuctionId, serverAddress, startingPrice);
+    
+    logger.nitro(`Created default auction with ID ${defaultAuctionId}`);
+    return defaultAuctionId;
+    
+  } catch (error) {
+    logger.error('Error creating default auction:', error);
+    throw error;
+  }
+}

@@ -50,7 +50,9 @@ export default function Home() {
     connectionStatus,
     isAuthenticated,
     error,
-    connect
+    connect,
+    sendMessage,
+    createSignedRequest
   } = useClearNodeConnection(CLEARNODE_CONFIG.WS_URL, wallet);
 
   return (
@@ -80,8 +82,15 @@ export default function Home() {
         </div>
 
         {/* Auction Component */}
-        {address && isAuthenticated && (
-          <Auction userAddress={address} />
+        {wallet && isAuthenticated && (
+          <Auction 
+            wallet={wallet} 
+            auctionId="default-auction-0x1" // TODO: Get from URL params or context
+            isAuthenticated={isAuthenticated}
+            connectionStatus={connectionStatus}
+            sendMessage={sendMessage}
+            createSignedRequest={createSignedRequest}
+          />
         )}
       </div>
     </main>

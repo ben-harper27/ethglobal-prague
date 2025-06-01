@@ -27,22 +27,6 @@ const auctionSessions = new Map<string, {
   createdAt: number;
 }>();
 
-// Create a mock auction session for development
-const mockAuctionId = 'default-auction-0x1';
-const mockServerAddress = '0x0fabe24849FF9228e9Bc68e01279eDe6339B3035';
-
-// Initialize mock auction if running in mock mode
-if (process.env.NODE_ENV !== 'production') {
-  auctionSessions.set(mockAuctionId, {
-    appId: '0x1234567890123456789012345678901234567890' as `0x${string}`,
-    seller: mockServerAddress,
-    currentBidder: null,
-    serverAddress: mockServerAddress,
-    currentBid: '1000000', // 1 USDC
-    createdAt: Date.now()
-  });
-}
-
 /**
  * Create an app session for a new auction
  * @param {string} auctionId - Auction ID

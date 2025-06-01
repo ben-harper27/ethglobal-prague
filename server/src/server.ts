@@ -239,13 +239,13 @@ async function handleGetAuctionState(ws: WebSocket, payload: { auctionId: string
     ws.send(JSON.stringify({
       type: 'auction:state',
       auctionId,
-      title: "Rare Digital Art #123", // In real app, get from auction metadata
-      description: "A unique piece of digital art from a renowned artist",
+      title: "Limited Edition Digital Art Collection", 
+      description: "A curated collection of unique digital artworks from renowned artists. Each piece is authenticated on the blockchain and comes with exclusive viewing rights.",
       startingPrice: auction.currentBid,
       currentBid: auction.currentBid,
       currentBidder: auction.currentBidder,
       seller: auction.seller,
-      endTime: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours from now
+      endTime: new Date(auction.createdAt + 24 * 60 * 60 * 1000), // 24 hours from creation
       status: 'active',
       bids: [] // In real app, get from auction history
     }));
@@ -295,6 +295,7 @@ wss.on('connection', (ws: WebSocket) => {
     let data: WebSocketMessage;
     try {
       const messageStr = message.toString();
+      logger.ws(`Received message: ${messageStr}`);
       data = JSON.parse(messageStr);
     } catch (e) {
       return sendError(ws, 'INVALID_JSON', 'Invalid JSON format');
@@ -316,6 +317,7 @@ wss.on('connection', (ws: WebSocket) => {
           await handleGetAuctionState(ws, data.payload as { auctionId: string }, context);
           break;
         default:
+          logger.ws(`Invalid message type: ${data.type}`);
           sendError(ws, 'INVALID_MESSAGE_TYPE', 'Invalid message type');
       }
     } catch (error) {

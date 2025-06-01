@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useAuction } from '../hooks/useAuction';
+import { useState, useEffect } from 'react';
+import { useWebSocket } from '../hooks/useWebSocket';
 import { toast } from 'react-toastify';
 import { WalletClient } from 'viem';
 
@@ -8,8 +8,22 @@ interface AuctionProps {
   wallet: WalletClient;
   isAuthenticated: boolean;
   connectionStatus: string;
-  sendMessage: (type: string, payload: unknown) => boolean;
-  createSignedRequest: (method: string, params: unknown[]) => Promise<string>;
+}
+
+interface AuctionState {
+  title: string;
+  description: string;
+  startingPrice: bigint;
+  endTime: Date;
+  seller: string;
+  status: 'active' | 'ended' | 'finalizing';
+  currentBid: bigint;
+  currentBidder: string | null;
+  bids: Array<{
+    bidder: string;
+    amount: bigint;
+    timestamp: number;
+  }>;
 }
 
 // Helper functions for USDC decimal handling (6 decimals internally, display 2)
@@ -46,32 +60,94 @@ export default function Auction({
   auctionId, 
   wallet,
   isAuthenticated,
-  connectionStatus,
-  sendMessage,
-  createSignedRequest
+  connectionStatus
 }: AuctionProps) {
   const [currentBid, setCurrentBid] = useState<string>('');
-  
-  const {
-    isConnected,
-    isLoading,
-    error: auctionError,
-    auctionState,
-    placeBid,
-    settleAuction,
-    isSeller
-  } = useAuction({
-    auctionId,
-    wallet,
-    onBidPlaced: (bid) => {
-      toast.success(`New bid placed: $${formatUSDC(bid.amount)} USDC`);
-    },
-    onAuctionSettled: (winner, amount) => {
-      toast.success(`Auction ended! Winner: ${winner} with bid of $${formatUSDC(amount)} USDC`);
-    },
-    sendMessage,
-    createSignedRequest
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [auctionState, setAuctionState] = useState<AuctionState>({
+    title: "Loading...",
+    description: "Loading auction details...",
+    startingPrice: BigInt(0),
+    endTime: new Date(),
+    seller: "",
+    status: 'active',
+    currentBid: BigInt(0),
+    currentBidder: null,
+    bids: []
   });
+  
+  const { isConnected, lastMessage, getAuctionState, placeBid: wsPlaceBid, settleAuction: wsSettleAuction } = useWebSocket();
+
+  // Handle WebSocket messages
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    try {
+      switch (lastMessage.type) {
+        case 'auction:state':
+          setAuctionState({
+            title: lastMessage.title || "Untitled Auction",
+            description: lastMessage.description || "No description available",
+            startingPrice: BigInt(lastMessage.startingPrice || '0'),
+            currentBid: BigInt(lastMessage.currentBid || '0'),
+            currentBidder: lastMessage.currentBidder || null,
+            endTime: new Date(lastMessage.endTime || Date.now()),
+            seller: lastMessage.seller || "",
+            status: (lastMessage.status as 'active' | 'ended' | 'finalizing') || 'active',
+            bids: (lastMessage.bids || []).map(bid => ({
+              bidder: bid.bidder,
+              amount: BigInt(bid.amount),
+              timestamp: new Date(bid.timestamp).getTime()
+            }))
+          });
+          setIsLoading(false);
+          break;
+
+        case 'auction:bid':
+          if (lastMessage.payload) {
+            const bid = {
+              bidder: lastMessage.payload.bidder,
+              amount: BigInt(lastMessage.payload.bidAmount)
+            };
+            toast.success(`New bid placed: $${formatUSDC(bid.amount)} USDC`);
+          }
+          break;
+
+        case 'auction:settled':
+          if (lastMessage.winner && lastMessage.finalPrice) {
+            setAuctionState(prev => ({ ...prev, status: 'ended' }));
+            toast.success(`Auction ended! Winner: ${lastMessage.winner} with bid of $${formatUSDC(BigInt(lastMessage.finalPrice))} USDC`);
+          }
+          break;
+
+        case 'error':
+          if (lastMessage.error) {
+            setError(lastMessage.error.msg);
+          }
+          break;
+      }
+    } catch (err) {
+      console.error('Error processing WebSocket message:', err);
+      setError('Error processing auction update');
+    }
+  }, [lastMessage]);
+
+  // Request initial auction state
+  useEffect(() => {
+    const fetchAuctionState = async () => {
+      try {
+        getAuctionState(auctionId);
+      } catch (err) {
+        setError('Failed to get auction state');
+        console.error('Error getting auction state:', err);
+      }
+    };
+
+    if (isConnected) {
+      fetchAuctionState();
+    }
+  }, [auctionId, isConnected, getAuctionState]);
 
   const handleBidSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +164,16 @@ export default function Auction({
         return;
       }
 
-      await placeBid(bidAmount);
+      if (bidAmount <= auctionState.currentBid) {
+        throw new Error('Bid must be higher than current bid');
+      }
+
+      wsPlaceBid({
+        auctionId,
+        bidder: wallet.account?.address as string,
+        bidAmount: bidAmount.toString()
+      });
+
       setCurrentBid('');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to place bid');
@@ -102,7 +187,14 @@ export default function Auction({
     }
 
     try {
-      await settleAuction();
+      if (wallet.account?.address !== auctionState.seller) {
+        throw new Error('Only the seller can settle the auction');
+      }
+
+      wsSettleAuction({
+        auctionId,
+        seller: wallet.account.address
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to settle auction');
     }
@@ -116,13 +208,15 @@ export default function Auction({
     );
   }
 
-  if (auctionError) {
+  if (error) {
     return (
       <div className="bg-gray-800 rounded-lg shadow-lg p-6 max-w-2xl mx-auto border border-gray-700">
-        <div className="text-red-500 text-center">{auctionError}</div>
+        <div className="text-red-500 text-center">{error}</div>
       </div>
     );
   }
+
+  const isSeller = wallet.account?.address === auctionState.seller;
 
   return (
     <div className="bg-gray-800 rounded-lg shadow-lg p-6 max-w-2xl mx-auto border border-gray-700">

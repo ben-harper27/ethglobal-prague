@@ -88,8 +88,6 @@ export default function Home() {
             auctionId="default-auction-0x1" // TODO: Get from URL params or context
             isAuthenticated={isAuthenticated}
             connectionStatus={connectionStatus}
-            sendMessage={sendMessage}
-            createSignedRequest={createSignedRequest}
           />
         )}
       </div>

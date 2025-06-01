@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { WalletClient } from 'viem';
 import { useWebSocket } from './useWebSocket';
-import type { WebSocketMessages, CreateAuctionPayload, PlaceBidPayload, SettleAuctionPayload } from '../types';
 
 export interface AuctionState {
   title: string;

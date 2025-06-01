@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { WebSocketMessages, CreateAuctionPayload, PlaceBidPayload, SettleAuctionPayload } from "../types";
+import type { WebSocketMessages, CreateAuctionPayload, PlaceBidPayload, SettleAuctionPayload } from "@/types";
 
 // WebSocket hook for connecting to the auction server
 export function useWebSocket() {
@@ -9,7 +9,7 @@ export function useWebSocket() {
   const [lastMessage, setLastMessage] = useState<WebSocketMessages | null>(null);
 
   // WebSocket server URL (use environment variable if available)
-  const wsUrl = "ws://localhost:8080";
+  const wsUrl = "ws://localhost:3001";
 
   // Initialize WebSocket connection
   useEffect(() => {

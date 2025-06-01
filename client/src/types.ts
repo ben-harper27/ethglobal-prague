@@ -18,6 +18,32 @@ export interface Auction {
   appSessionId?: string;
 }
 
+export interface WebSocketMessages {
+  type: string;
+  title?: string;
+  description?: string;
+  startingPrice?: string;
+  currentBid?: string;
+  currentBidder?: string;
+  endTime?: string;
+  seller?: string;
+  status?: 'active' | 'ended' | 'finalizing';
+  bids?: Array<{
+    bidder: string;
+    amount: string;
+    timestamp: string;
+  }>;
+  payload?: {
+    bidder: string;
+    bidAmount: string;
+  };
+  winner?: string;
+  finalPrice?: string;
+  error?: {
+    msg: string;
+  };
+}
+
 export interface CreateAuctionPayload {
   auctionId: string;
   seller: string;
@@ -33,28 +59,6 @@ export interface PlaceBidPayload {
 export interface SettleAuctionPayload {
   auctionId: string;
   seller: string;
-}
-
-export type WebSocketMessages = {
-  type: 'auction:create' | 'auction:bid' | 'auction:settle' | 'auction:getState' | 'auction:state' | 'auction:settled' | 'error' | 'onlineUsers';
-  payload?: CreateAuctionPayload | PlaceBidPayload | SettleAuctionPayload;
-  auctionId?: string;
-  title?: string;
-  description?: string;
-  startingPrice?: string;
-  currentBid?: string;
-  currentBidder?: string;
-  seller?: string;
-  endTime?: Date;
-  status?: string;
-  bids?: Bid[];
-  winner?: string;
-  finalPrice?: string;
-  count?: number;
-  error?: {
-    code: string;
-    msg: string;
-  };
 }
 
 export interface JoinRoomPayload {

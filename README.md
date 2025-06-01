@@ -17,7 +17,7 @@ FlashBid is a trustless auction platform where bidding happens off-chain using s
 ## 🧱 Tech Stack
 
 | Layer           | Tech                                     |
-|-----------------|------------------------------------------g|
+|-----------------|------------------------------------------|
 | Frontend        | React, TypeScript, Tailwind, Ethers/Viem |
 | Off-chain logic | `@erc7824/nitrolite` (Nitrolite SDK)     |
 | Wallet Signing  | Ethers.js                                |
